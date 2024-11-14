@@ -4,23 +4,14 @@ import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import React from "react";
 import Image from "next/image";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-interface BioWithSlugProps {
-  params: {
-    username: string;
-  };
-}
-
-const BioWithSlug = async ({ params }: BioWithSlugProps) => {
-  const { username } = await params;
+const BioWithSlug = async ({
+  params,
+}: {
+  params: Promise<{ username: string }>;
+}) => {
+  const username = (await params).username;
   const [user] = await db
     .select({ bio: users.bio, image: users.image })
     .from(users)
