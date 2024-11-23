@@ -208,7 +208,7 @@ app.prepare().then(() => {
               if (producer.kind === "audio") {
                 audioLevelObserver.addProducer({ producerId: producer.id });
               }
-              socket.broadcast.emit("producer-add", {
+              nsSocket.broadcast.emit("producer-add", {
                 id: producer.id,
                 kind: producer.kind,
               });
