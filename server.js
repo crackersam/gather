@@ -95,7 +95,9 @@ app.prepare().then(() => {
             // remove the consumer associated with the socket
             consumers = consumers.filter((obj) => obj.socketId !== nsSocket.id);
 
-            socket.broadcast.emit("producer-remove", { socketId: nsSocket.id });
+            nsSocket.broadcast.emit("producer-remove", {
+              socketId: nsSocket.id,
+            });
           });
 
           nsSocket.on("createRoom", async (callback) => {
