@@ -192,7 +192,7 @@ app.prepare().then(() => {
 
           nsSocket.on(
             "transport-produce",
-            async ({ kind, rtpParameters, appData }, callback) => {
+            async ({ kind, rtpParameters, appData, roomName }, callback) => {
               // call produce based on the prameters from the client
               let producer = await transports[
                 transports.findIndex(
@@ -218,7 +218,10 @@ app.prepare().then(() => {
                 producer.close();
               });
 
-              producers = [...producers, { socketId: nsSocket.id, producer }];
+              producers = [
+                ...producers,
+                { roomName, socketId: nsSocket.id, producer },
+              ];
 
               // Send back to the client the Producer's id
               callback({
@@ -239,13 +242,18 @@ app.prepare().then(() => {
             }
           });
 
-          nsSocket.on("getProducers", (callback) => {
+          nsSocket.on("getProducers", (roomName, callback) => {
             let currentProducers = [];
             producers.forEach((producer) => {
-              currentProducers = [
-                ...currentProducers,
-                { id: producer.producer.id, kind: producer.producer.kind },
-              ];
+              if (
+                producer.socketId !== nsSocket.id &&
+                producer.roomName === roomName
+              ) {
+                currentProducers = [
+                  ...currentProducers,
+                  { id: producer.producer.id, kind: producer.producer.kind },
+                ];
+              }
             });
             callback(currentProducers);
           });

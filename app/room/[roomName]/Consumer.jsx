@@ -18,7 +18,8 @@ const Consumer = ({ consumer, audioConsumer, myId, socket }) => {
     if (audioConsumer) {
       if (
         myId.current === audioConsumer.producerId ||
-        myId.current === consumer.producerId
+        myId.current === consumer.producerId ||
+        consumer.appData.mediaTag === "local"
       ) {
         videoRef.current.muted = true;
       }
@@ -49,7 +50,7 @@ const Consumer = ({ consumer, audioConsumer, myId, socket }) => {
         controls
         playsInline
       />
-      <div className="text-white text-center">{consumer.appData}</div>
+      <div className="text-white text-center">{consumer.appData.name}</div>
     </div>
   ) : null;
 };

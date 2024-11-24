@@ -6,6 +6,7 @@ import Consumer from "./Consumer";
 import ActiveSpeaker from "./ActiveSpeaker";
 import { Fullscreen, Minimize } from "lucide-react";
 import io from "socket.io-client";
+import { v4 as uuidv4 } from "uuid";
 
 const Home = ({ roomName, isAdmin, username }) => {
   const speakerIndex = React.useRef(0);
@@ -58,11 +59,11 @@ const Home = ({ roomName, isAdmin, username }) => {
       console.log(`Joined namespace: ${namespace}`);
       nsSocket.current = io(`/${namespace}`);
     });
-
-    params.current.appData = { ...params.current, mediaTag: username };
+    const mediaTag = uuidv4();
+    params.current.appData = { ...params.current, mediaTag: mediaTag };
     audioParams.current.appData = {
       ...audioParams.current,
-      mediaTag: username,
+      mediaTag: mediaTag,
     };
 
     runOnce.current = true;
@@ -116,6 +117,18 @@ const Home = ({ roomName, isAdmin, username }) => {
       .then((stream) => {
         const track = stream.getVideoTracks()[0];
         const audioTrack = stream.getAudioTracks()[0];
+        setConsumers([
+          {
+            consumer: { track },
+            appData: { mediaTag: "local", name: username },
+          },
+        ]);
+        setAudioConsumers([
+          {
+            consumer: { track: audioTrack },
+            appData: { mediaTag: "local", name: username },
+          },
+        ]);
         audioParams.current.track = audioTrack;
         params.current.track = track;
         goConnect(true);
@@ -141,7 +154,7 @@ const Home = ({ roomName, isAdmin, username }) => {
   };
 
   const getProducers = () => {
-    nsSocket.current.emit("getProducers", (data) => {
+    nsSocket.current.emit("getProducers", roomName, (data) => {
       data.forEach((producer) => {
         console.log("connecting recv transport", producer.id);
         connectRecvTransport(producer.id);
@@ -224,6 +237,7 @@ const Home = ({ roomName, isAdmin, username }) => {
                   kind: parameters.kind,
                   rtpParameters: parameters.rtpParameters,
                   appData: parameters.appData,
+                  roomName,
                 },
                 ({ id }) => {
                   // Tell the transport that parameters were transmitted and provide it with the
