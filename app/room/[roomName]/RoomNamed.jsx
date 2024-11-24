@@ -404,7 +404,7 @@ const Home = ({ roomName, isAdmin, username }) => {
         {consumers.map((consumer, i) => {
           // Find the matching audioConsumer based on appData
           const matchingAudio = audioConsumers.find(
-            (audio) => audio?.appData === consumer?.appData
+            (audio) => audio?.appData.mediaTag === consumer?.appData.mediaTag
           );
 
           return (
@@ -422,7 +422,7 @@ const Home = ({ roomName, isAdmin, username }) => {
         {consumers.map((consumer, i) => {
           // Find the matching audioConsumer based on appData
           const matchingAudio = audioConsumers.find(
-            (audio) => audio?.appData === consumer?.appData
+            (audio) => audio?.appData.mediaTag === consumer?.appData.mediaTag
           );
 
           return (
