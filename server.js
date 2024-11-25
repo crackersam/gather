@@ -4,7 +4,6 @@ import { Server } from "socket.io";
 import fs from "fs";
 import path from "path";
 import mediasoup from "mediasoup";
-import { Socket } from "socket.io-client";
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = "localhost";
@@ -12,24 +11,40 @@ const port = 3000;
 // when using middleware `hostname` and `port` must be provided below
 const app = next({ dev, hostname, port });
 const handler = app.getRequestHandler();
-var __dirname = path.resolve();
+const __dirname = path.resolve();
+const options = {
+  key: fs.readFileSync(path.resolve(__dirname, "certs", "key.pem")),
+  cert: fs.readFileSync(path.resolve(__dirname, "certs", "cert.pem")),
+};
+
+const mediaCodecs = [
+  {
+    kind: "audio",
+    mimeType: "audio/opus",
+    clockRate: 48000,
+    channels: 2,
+  },
+  {
+    kind: "video",
+    mimeType: "video/VP8",
+    clockRate: 90000,
+    parameters: {
+      "x-google-start-bitrate": 1000,
+    },
+  },
+];
 
 app.prepare().then(() => {
-  const options = {
-    key: fs.readFileSync(path.resolve(__dirname, "certs", "key.pem")),
-    cert: fs.readFileSync(path.resolve(__dirname, "certs", "cert.pem")),
-  };
-  const httpsServer = createServer(options, handler);
+  const httpServer = createServer(options, handler);
 
-  const io = new Server(httpsServer);
-
+  const io = new Server(httpServer);
   let worker;
-  let router;
+  let namespaces = {};
+  let rooms = {};
+
   let transports = [];
   let producers = [];
   let consumers = [];
-  let audioLevelObserver;
-  let namespaces = {};
 
   const createWorker = async () => {
     worker = await mediasoup.createWorker({
@@ -50,24 +65,66 @@ app.prepare().then(() => {
   // We create a Worker as soon as our application starts
   worker = createWorker();
 
-  const mediaCodecs = [
-    {
-      kind: "audio",
-      mimeType: "audio/opus",
-      clockRate: 48000,
-      channels: 2,
-    },
-    {
-      kind: "video",
-      mimeType: "video/VP8",
-      clockRate: 90000,
-      parameters: {
-        "x-google-start-bitrate": 1000,
-      },
-    },
-  ];
-  io.on("connection", async (socket) => {
-    console.log("a user connected to the default namespace");
+  const createWebRtcTransport = async (roomName, callback) => {
+    try {
+      // https://mediasoup.org/documentation/v3/mediasoup/api/#WebRtcTransportOptions
+      const webRtcTransport_options = {
+        listenIps: [
+          {
+            ip: "0.0.0.0", // replace with relevant IP address
+            announcedIp: "127.0.0.1",
+          },
+        ],
+        enableUdp: true,
+        enableTcp: true,
+        preferUdp: true,
+      };
+
+      // https://mediasoup.org/documentation/v3/mediasoup/api/#router-createWebRtcTransport
+      let transport = await rooms[roomName].createWebRtcTransport(
+        webRtcTransport_options
+      );
+      console.log(`transport id: ${transport.id}`);
+
+      transport.on("dtlsstatechange", (dtlsState) => {
+        if (dtlsState === "closed") {
+          transport.close();
+        }
+      });
+
+      transport.on("close", () => {
+        console.log("transport closed");
+      });
+
+      // send back to the client the following prameters
+      callback({
+        // https://mediasoup.org/documentation/v3/mediasoup-client/api/#TransportOptions
+        params: {
+          id: transport.id,
+          iceParameters: transport.iceParameters,
+          iceCandidates: transport.iceCandidates,
+          dtlsParameters: transport.dtlsParameters,
+        },
+      });
+
+      return transport;
+    } catch (error) {
+      console.log(error);
+      callback({
+        params: {
+          error: error,
+        },
+      });
+    }
+  };
+
+  io.on("connection", (socket) => {
+    console.log("A user connected to the default namespace");
+
+    socket.on("list-namespaces", () => {
+      socket.emit("namespaces", Object.keys(namespaces));
+    });
+
     socket.on("joinNamespace", (namespace) => {
       if (!namespaces[namespace]) {
         // Create the namespace dynamically if it doesn't exist
@@ -78,52 +135,104 @@ app.prepare().then(() => {
           console.log(`User connected to namespace: ${namespace}`);
           nsSocket.emit("connection-success", {
             data: `User connected to namespace: ${namespace}`,
-            socketId: nsSocket.id,
+            nsSocketId: nsSocket.id,
           });
 
-          nsSocket.on("disconnect", () => {
-            console.log("user disconnected");
+          nsSocket.on("boot", (socketId) => {
+            producers
+              .filter((obj) => obj.socketId === socketId)
+              .forEach((obj) => {
+                obj.producer.close();
+              });
+            producers = producers.filter((obj) => obj.socketId !== socketId);
+            consumers
+              .filter((obj) => obj.socketId === socketId)
+              .forEach((obj) => {
+                obj.consumer.close();
+              });
+            consumers = consumers.filter((obj) => obj.socketId !== socketId);
+            transports
+              .filter((obj) => obj.socketId === socketId)
+              .forEach((obj) => {
+                obj.transport.close();
+              });
+            transports = transports.filter((obj) => obj.socketId !== socketId);
 
-            // remove the transport associated with the socket
-            transports = transports.filter(
-              (obj) => obj.socketId !== nsSocket.id
-            );
-
-            // remove the producer associated with the socket
-            producers = producers.filter((obj) => obj.socketId !== nsSocket.id);
-
-            // remove the consumer associated with the socket
-            consumers = consumers.filter((obj) => obj.socketId !== nsSocket.id);
-
-            nsSocket.broadcast.emit("producer-remove", {
-              socketId: nsSocket.id,
+            namespaces[namespace].emit("producer-remove", {
+              socketId,
             });
+            namespaces[namespace].sockets.get(socketId).disconnect();
+            console.log(socketId, "booted");
           });
 
-          nsSocket.on("createRoom", async (callback) => {
-            if (namespaces[namespace].router === undefined) {
+          nsSocket.on("joinRequest", ({ name, roomName }) => {
+            if (
+              !rooms[roomName] ||
+              !namespaces[namespace].sockets.get(rooms[roomName].admin) ||
+              namespaces[namespace].sockets.get(rooms[roomName].admin)
+                .disconnected
+            ) {
+              nsSocket.emit("joinApproval");
+            } else {
+              namespaces[namespace].sockets
+                .get(rooms[roomName].admin)
+                .emit("joinRequest", { name, socketId: nsSocket.id });
+            }
+          });
+
+          nsSocket.on("joinApproval", ({ socketId }) => {
+            namespaces[namespace].sockets.get(socketId).emit("joinApproved");
+          });
+
+          nsSocket.on("joinRejection", ({ socketId }) => {
+            namespaces[namespace].sockets.get(socketId).emit("joinRejected");
+          });
+
+          nsSocket.on("raiseHand", ({ name, roomName }) => {
+            namespaces[roomName].emit("handRaised", { name });
+          });
+
+          nsSocket.on("pause", () => {
+            producers
+              .filter((obj) => obj.socketId === nsSocket.id)
+              .forEach((obj) => {
+                obj.producer.pause();
+              });
+          });
+
+          nsSocket.on("resume", () => {
+            producers
+              .filter((obj) => obj.socketId === nsSocket.id)
+              .forEach((obj) => {
+                obj.producer.resume();
+              });
+          });
+
+          nsSocket.on("createRoom", async (roomName, callback) => {
+            if (rooms[roomName] === undefined) {
               // worker.createRouter(options)
               // options = { mediaCodecs, appData }
               // mediaCodecs -> defined above
               // appData -> custom application data - we are not supplying any
               // none of the two are required
-              namespaces[namespace].router = await worker.createRouter({
+              rooms[roomName] = await worker.createRouter({
                 mediaCodecs,
               });
+              rooms[roomName].admin = nsSocket.id;
               // Create an AudioLevelObserver on the router
-              audioLevelObserver = await namespaces[
-                namespace
-              ].router.createAudioLevelObserver({
+              rooms[roomName].audioLevelObserver = await rooms[
+                roomName
+              ].createAudioLevelObserver({
                 maxEntries: 1, // Number of participants to detect as active speakers
                 threshold: -60, // Volume threshold in dB, above this is considered speech
                 interval: 800, // Interval in ms to calculate the audio levels
               });
               // Listen for active speaker changes
-              audioLevelObserver.on("volumes", (volumes) => {
+              rooms[roomName].audioLevelObserver.on("volumes", (volumes) => {
                 const { producer, volume } = volumes[0]; // Get the most active speaker's producer
-                console.log(
-                  `Active speaker: ${producer.id}, volume: ${volume}`
-                );
+                // console.log(
+                //   `Active speaker: ${producer.id}, volume: ${volume}`
+                // );
                 // Send active speaker info to all clients
                 namespaces[namespace].emit("activeSpeaker", {
                   producerId: producer.id,
@@ -131,55 +240,58 @@ app.prepare().then(() => {
               });
 
               // Optional: listen for when no one is speaking
-              audioLevelObserver.on("silence", () => {
-                console.log("No active speakers");
+              rooms[roomName].audioLevelObserver.on("silence", () => {
+                // console.log("No active speakers");
                 namespaces[namespace].emit("activeSpeaker", {
                   producerId: null,
                 });
               });
-              console.log(`Router ID: ${namespaces[namespace].router.id}`);
+              console.log(`Router ID: ${rooms[roomName].id}`);
             }
 
-            getRtpCapabilities(namespace, callback);
+            getRtpCapabilities(roomName, callback);
           });
 
-          const getRtpCapabilities = (namespace, callback) => {
-            const rtpCapabilities =
-              namespaces[namespace].router.rtpCapabilities;
+          const getRtpCapabilities = (roomName, callback) => {
+            const rtpCapabilities = rooms[roomName].rtpCapabilities;
+            const isAdmin = nsSocket.id === rooms[roomName].admin;
 
-            callback({ rtpCapabilities });
+            callback({ rtpCapabilities, isAdmin });
           };
 
-          nsSocket.on("createWebRtcTransport", async ({ sender }, callback) => {
-            console.log(`Is this a sender request? ${sender}`);
-            // The client indicates if it is a producer or a consumer
-            // if sender is true, indicates a producer else a consumer
-            const transportIndex = transports.findIndex(
-              (obj) => obj.sender === sender && obj.socketId === socket.id
-            );
-            console.log("matching transport found at ", transportIndex);
-            if (transportIndex === -1) {
-              const newTransport = {
-                socketId: nsSocket.id,
-                sender,
-                transport: await createWebRtcTransport(namespace, callback),
-              };
-              transports = [...transports, newTransport];
-              console.log("-new transport created");
-            } else {
-              console.log("using transport", transportIndex);
-              const t = transports[transportIndex];
-              callback({
-                // https://mediasoup.org/documentation/v3/mediasoup-client/api/#TransportOptions
-                params: {
-                  id: t.transport.id,
-                  iceParameters: t.transport.iceParameters,
-                  iceCandidates: t.transport.iceCandidates,
-                  dtlsParameters: t.transport.dtlsParameters,
-                },
-              });
+          nsSocket.on(
+            "createWebRtcTransport",
+            async ({ sender, roomName }, callback) => {
+              console.log(`Is this a sender request? ${sender}`);
+              // The client indicates if it is a producer or a consumer
+              // if sender is true, indicates a producer else a consumer
+              const transportIndex = transports.findIndex(
+                (obj) => obj.sender === sender && obj.socketId === nsSocket.id
+              );
+              console.log("matching transport found at ", transportIndex);
+              if (transportIndex === -1) {
+                const newTransport = {
+                  socketId: nsSocket.id,
+                  sender,
+                  transport: await createWebRtcTransport(roomName, callback),
+                };
+                transports = [...transports, newTransport];
+                console.log("-new transport created");
+              } else {
+                console.log("using transport", transportIndex);
+                const t = transports[transportIndex];
+                callback({
+                  // https://mediasoup.org/documentation/v3/mediasoup-client/api/#TransportOptions
+                  params: {
+                    id: t.transport.id,
+                    iceParameters: t.transport.iceParameters,
+                    iceCandidates: t.transport.iceCandidates,
+                    dtlsParameters: t.transport.dtlsParameters,
+                  },
+                });
+              }
             }
-          });
+          );
 
           nsSocket.on("transport-connect", async ({ dtlsParameters }) => {
             console.log("DTLS PARAMS... ", { dtlsParameters });
@@ -206,7 +318,9 @@ app.prepare().then(() => {
 
               console.log("Producer ID: ", producer.id, producer.kind);
               if (producer.kind === "audio") {
-                audioLevelObserver.addProducer({ producerId: producer.id });
+                rooms[roomName].audioLevelObserver.addProducer({
+                  producerId: producer.id,
+                });
               }
               nsSocket.broadcast.emit("producer-add", {
                 id: producer.id,
@@ -229,7 +343,6 @@ app.prepare().then(() => {
               });
             }
           );
-
           nsSocket.on("transport-recv-connect", async ({ dtlsParameters }) => {
             console.log(`DTLS PARAMS: ${dtlsParameters}`);
             const i = transports.findIndex(
@@ -244,10 +357,11 @@ app.prepare().then(() => {
 
           nsSocket.on("getProducers", (roomName, callback) => {
             let currentProducers = [];
+            console.log(producers.length, "producers");
             producers.forEach((producer) => {
               if (
-                producer.socketId !== nsSocket.id &&
-                producer.roomName === roomName
+                producer.roomName === roomName &&
+                producer.socketId !== nsSocket.id
               ) {
                 currentProducers = [
                   ...currentProducers,
@@ -260,11 +374,11 @@ app.prepare().then(() => {
 
           nsSocket.on(
             "consume",
-            async ({ rtpCapabilities, producerId }, callback) => {
+            async ({ rtpCapabilities, producerId, roomName }, callback) => {
               try {
                 // check if the router can consume the specified producer
                 if (
-                  namespaces[namespace].router.canConsume({
+                  rooms[roomName].canConsume({
                     producerId: producerId,
                     rtpCapabilities,
                   })
@@ -273,7 +387,6 @@ app.prepare().then(() => {
                     (obj) => obj.socketId === nsSocket.id && !obj.sender
                   );
                   // transport can now consume and return a consumer
-
                   const consumer = await transports[i].transport.consume({
                     producerId: producerId,
                     rtpCapabilities,
@@ -295,10 +408,17 @@ app.prepare().then(() => {
                     producerId: producerId,
                     kind: consumer.kind,
                     rtpParameters: consumer.rtpParameters,
-                    appData:
-                      producers[
+                    appData: {
+                      mediaTag:
+                        producers[
+                          producers.findIndex(
+                            (p) => p.producer.id === producerId
+                          )
+                        ].producer.appData.mediaTag,
+                      name: producers[
                         producers.findIndex((p) => p.producer.id === producerId)
-                      ].producer.appData.mediaTag,
+                      ].producer.appData.name,
+                    },
                     socketId:
                       producers[
                         producers.findIndex((p) => p.producer.id === producerId)
@@ -331,67 +451,39 @@ app.prepare().then(() => {
               )
             ].consumer.resume();
           });
+
+          nsSocket.on("disconnect", () => {
+            console.log(`User disconnected from namespace: ${namespace}`);
+            namespaces[namespace].count = namespaces[namespace].count - 1;
+            if (namespaces[namespace].count === 0) {
+              console.log("No users in the namespace");
+              delete namespaces[namespace];
+              delete rooms[namespace];
+            }
+            // remove the transport associated with the socket
+            transports = transports.filter(
+              (obj) => obj.socketId !== nsSocket.id
+            );
+
+            // remove the producer associated with the socket
+            producers = producers.filter((obj) => obj.socketId !== nsSocket.id);
+
+            // remove the consumer associated with the socket
+            consumers = consumers.filter((obj) => obj.socketId !== nsSocket.id);
+
+            nsSocket.broadcast.emit("producer-remove", {
+              socketId: nsSocket.id,
+            });
+          });
         });
       }
+
       // Join the user to the namespace
       socket.emit("namespaceJoined", namespace);
     });
-
-    const createWebRtcTransport = async (namespace, callback) => {
-      try {
-        // https://mediasoup.org/documentation/v3/mediasoup/api/#WebRtcTransportOptions
-        const webRtcTransport_options = {
-          listenIps: [
-            {
-              ip: "0.0.0.0", // replace with relevant IP address
-              announcedIp: "127.0.0.1",
-            },
-          ],
-          enableUdp: true,
-          enableTcp: true,
-          preferUdp: true,
-        };
-
-        // https://mediasoup.org/documentation/v3/mediasoup/api/#router-createWebRtcTransport
-        let transport = await namespaces[
-          namespace
-        ].router.createWebRtcTransport(webRtcTransport_options);
-        console.log(`transport id: ${transport.id}`);
-
-        transport.on("dtlsstatechange", (dtlsState) => {
-          if (dtlsState === "closed") {
-            transport.close();
-          }
-        });
-
-        transport.on("close", () => {
-          console.log("transport closed");
-        });
-
-        // send back to the client the following prameters
-        callback({
-          // https://mediasoup.org/documentation/v3/mediasoup-client/api/#TransportOptions
-          params: {
-            id: transport.id,
-            iceParameters: transport.iceParameters,
-            iceCandidates: transport.iceCandidates,
-            dtlsParameters: transport.dtlsParameters,
-          },
-        });
-
-        return transport;
-      } catch (error) {
-        console.log(error);
-        callback({
-          params: {
-            error: error,
-          },
-        });
-      }
-    };
   });
 
-  httpsServer
+  httpServer
     .once("error", (err) => {
       console.error(err);
       process.exit(1);

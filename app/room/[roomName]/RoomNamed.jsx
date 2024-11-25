@@ -1,18 +1,18 @@
 "use client";
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { socket } from "@/socket";
+import { io } from "socket.io-client";
 import * as mediasoup from "mediasoup-client";
-import Consumer from "./Consumer";
 import ActiveSpeaker from "./ActiveSpeaker";
-import { Fullscreen, Minimize } from "lucide-react";
-import io from "socket.io-client";
+import Consumer from "./Consumer";
+import { Fullscreen, Minimize, Hand } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
 
-const Home = ({ roomName, isAdmin, username }) => {
-  const speakerIndex = React.useRef(0);
-  const rtpCapabilities = React.useRef(null);
+const RoomNamed = ({ roomName, isAdmin, username }) => {
+  const nsSocket = useRef(null);
+  const runOnce = useRef(false);
   const params = React.useRef({
-    // mediasoup params
+    // mediasoup params:
     encodings: [
       {
         rid: "r0",
@@ -37,53 +37,115 @@ const Home = ({ roomName, isAdmin, username }) => {
   });
   const audioParams = React.useRef({});
   const device = React.useRef(null);
+  const rtpCapabilities = React.useRef(null);
   const producerTransport = React.useRef(null);
-  const consumerTransport = React.useRef(null);
   const producer = React.useRef(null);
   const audioProducer = React.useRef(null);
+  const myId = React.useRef(null);
+  const consumerTransport = React.useRef(null);
   const [consumers, setConsumers] = React.useState([]);
   const [audioConsumers, setAudioConsumers] = React.useState([]);
-  const isProducer = React.useRef(false);
-  const isConsuming = React.useRef(false);
-  const runOnce = React.useRef(false);
-  const myId = React.useRef(null);
-  const [isFullscreen, setIsFullscreen] = React.useState(false);
   const fullscreen = React.useRef(null);
   const [button, setButton] = React.useState(false);
-  const nsSocket = React.useRef(null);
-  const runOnce2 = React.useRef(false);
+  const [isFullscreen, setIsFullscreen] = React.useState(false);
+  const isProducer = React.useRef(false);
+  const isConsuming = React.useRef(false);
+  const speakerIndex = React.useRef(0);
+  const runOnce2 = useRef(false);
+  const isAdmin = React.useRef(false);
+  const [name, setName] = React.useState(null);
+  const hand = React.useRef(null);
+  const handRaise = React.useRef(null);
+  const [handRaised, setHandRaised] = React.useState("");
+  const handRaiseUnmodifyable = React.useRef(false);
   useEffect(() => {
     if (runOnce.current) return;
     socket.emit("joinNamespace", roomName);
     socket.on("namespaceJoined", (namespace) => {
-      console.log(`Joined namespace: ${namespace}`);
       nsSocket.current = io(`/${namespace}`);
+      nsSocket.current.on("connection-success", ({ data, nsSocketId }) => {
+        console.log(data, nsSocketId);
+      });
+      console.log(`Joined namespace: ${namespace}`);
     });
-    const mediaTag = uuidv4();
-    params.current.appData = { ...params.current, mediaTag: mediaTag };
-    audioParams.current.appData = {
-      ...audioParams.current,
-      mediaTag: mediaTag,
-    };
-
+    hand.current.style.zIndex = speakerIndex.current + 1;
     runOnce.current = true;
   }, []);
 
   useEffect(() => {
     if (runOnce2.current) return;
     if (!nsSocket.current) return;
-    nsSocket.current.on(
-      "connection-success",
-      ({ socketId, existsProducer }) => {
-        console.log(`Connected with socketId: ${socketId}, ${existsProducer}`);
+    nsSocket.current.on("disconnect", (reason) => {
+      console.log("Disconnected from the server. Reason:", reason);
+
+      // Optionally, take action based on the reason
+      if (reason === "io server disconnect") {
+        const newConsumers = [...consumers];
+        newConsumers.forEach((consumer) => {
+          consumer.consumer.close();
+          consumer = null;
+        });
+        setConsumers(newConsumers);
+        // The server forcibly disconnected this client
+        alert("You were kicked or disconnected by the server.");
+      } else if (reason === "ping timeout") {
+        console.log("Connection lost due to ping timeout.");
+      } else if (reason === "transport close") {
+        console.log("Transport closed unexpectedly.");
+      } else {
+        console.log("Disconnected due to network issues.");
       }
-    );
+    });
+    nsSocket.current.on("handRaised", ({ name }) => {
+      if (handRaiseUnmodifyable.current) return;
+      setHandRaised(name);
+      handRaiseUnmodifyable.current = true;
+      handRaise.current.style.display = "block";
+      handRaise.current.style.zIndex = speakerIndex.current + 1;
+      setTimeout(() => {
+        handRaise.current.style.display = "none";
+        setHandRaised("");
+        handRaiseUnmodifyable.current = false;
+      }, 10000);
+    });
     nsSocket.current.on("producer-add", ({ id, kind }) => {
       console.log(`Producer added: ${id}, ${kind}`);
       if (isConsuming.current) {
         connectRecvTransport(id);
       }
     });
+    nsSocket.current.on("joinApproval", () => {
+      getLocalStream();
+    });
+
+    nsSocket.current.on("joinResponse", ({ response }) => {
+      if (response) {
+        getLocalStream();
+      } else {
+        alert("Your request to join the room was denied.");
+      }
+    });
+    nsSocket.current.on("joinRequest", ({ name, socketId }) => {
+      let response = window.confirm(`${name} wants to join the room`);
+      if (response) {
+        nsSocket.current.emit("joinApproval", { socketId });
+      } else {
+        nsSocket.current.emit("joinRejection", { socketId });
+      }
+    });
+    nsSocket.current.on("joinRejected", () => {
+      alert("Your request to join the room was denied.");
+    });
+    nsSocket.current.on("joinApproved", () => {
+      console.log("Join approved");
+      getLocalStream();
+    });
+    const publishId = uuidv4();
+    params.current.appData = { ...params.current.appData, mediaTag: publishId };
+    audioParams.current.appData = {
+      ...audioParams.current.appData,
+      mediaTag: publishId,
+    };
     nsSocket.current.on("producer-remove", ({ socketId }) => {
       setConsumers((prevConsumers) => {
         const newConsumers = [...prevConsumers];
@@ -108,29 +170,40 @@ const Home = ({ roomName, isAdmin, username }) => {
         return newConsumers;
       });
     });
+
+    runOnce2.current = true;
   }, [nsSocket.current]);
 
-  const getLocalStream = () => {
+  useEffect(() => {
+    if (name) {
+      params.current.appData.name = name;
+      nsSocket.current.emit("joinRequest", { name, roomName });
+    }
+  }, [name]);
+
+  const getName = () => {
     setButton(true);
+    setName(prompt("Enter your name"));
+  };
+
+  const getLocalStream = () => {
     navigator.mediaDevices
       .getUserMedia({ video: true, audio: true })
       .then((stream) => {
         const track = stream.getVideoTracks()[0];
         const audioTrack = stream.getAudioTracks()[0];
         setConsumers([
-          {
-            consumer: { track },
-            appData: { mediaTag: "local", name: username },
-          },
+          { consumer: { track }, appData: { mediaTag: "local", name: name } },
         ]);
         setAudioConsumers([
           {
             consumer: { track: audioTrack },
-            appData: { mediaTag: "local", name: username },
+            appData: { mediaTag: "local", name: name },
           },
         ]);
         audioParams.current.track = audioTrack;
         params.current.track = track;
+        hand.current.style.display = "block";
         goConnect(true);
       })
       .catch((err) => {
@@ -163,8 +236,9 @@ const Home = ({ roomName, isAdmin, username }) => {
   };
 
   const getRtpCapabilities = async () => {
-    nsSocket.current.emit("createRoom", (data) => {
+    nsSocket.current.emit("createRoom", roomName, (data) => {
       console.log(data);
+      isAdmin.current = data.isAdmin;
       rtpCapabilities.current = data.rtpCapabilities;
       createDevice();
     });
@@ -184,7 +258,7 @@ const Home = ({ roomName, isAdmin, username }) => {
     // this is a call from Producer, so sender = true
     nsSocket.current.emit(
       "createWebRtcTransport",
-      { sender: true },
+      { sender: true, roomName },
       ({ params }) => {
         // The server sends back params needed
         // to create Send Transport on the client side
@@ -242,7 +316,23 @@ const Home = ({ roomName, isAdmin, username }) => {
                 ({ id }) => {
                   // Tell the transport that parameters were transmitted and provide it with the
                   // server side producer's id.
-                  myId.current = id;
+                  if (parameters.kind === "video") {
+                    setConsumers((prevConsumers) => {
+                      const newConsumers = [...prevConsumers];
+                      newConsumers.find(
+                        (obj) => obj.appData.mediaTag === "local"
+                      ).producerId = id;
+                      return newConsumers;
+                    });
+                  } else if (parameters.kind === "audio") {
+                    setAudioConsumers((prevConsumers) => {
+                      const newConsumers = [...prevConsumers];
+                      newConsumers.find(
+                        (obj) => obj.appData.mediaTag === "local"
+                      ).producerId = id;
+                      return newConsumers;
+                    });
+                  }
                   callback({ id });
                 }
               );
@@ -255,7 +345,6 @@ const Home = ({ roomName, isAdmin, username }) => {
       }
     );
   };
-
   const connectSendTransport = async () => {
     // we now call produce() to instruct the producer transport
     // to send media to the Router
@@ -291,13 +380,12 @@ const Home = ({ roomName, isAdmin, username }) => {
     });
     goConsume();
   };
-
   const createRecvTransport = async (producerId) => {
     // see server's socket.on('consume', sender?, ...)
     // this is a call from Consumer, so sender = false
     await nsSocket.current.emit(
       "createWebRtcTransport",
-      { sender: false },
+      { sender: false, roomName },
       ({ params }) => {
         // The server sends back params needed
         // to create Send Transport on the client side
@@ -338,7 +426,6 @@ const Home = ({ roomName, isAdmin, username }) => {
       }
     );
   };
-
   const connectRecvTransport = async (producerId) => {
     // for consumer, we need to tell the server first
     // to create a consumer based on the rtpCapabilities and consume
@@ -348,6 +435,7 @@ const Home = ({ roomName, isAdmin, username }) => {
       {
         rtpCapabilities: device.current.rtpCapabilities,
         producerId,
+        roomName,
       },
       async ({ params }) => {
         if (params.error) {
@@ -389,17 +477,31 @@ const Home = ({ roomName, isAdmin, username }) => {
       }
     );
   };
-
   return (
     <div ref={fullscreen} className="w-screen h-screen relative">
       {!button && (
         <button
           className="absolute top-0 left-[50%] z-10 translate-x-[-50%] p-2 bg-slate-800 rounded-md text-white"
-          onClick={getLocalStream}
+          onClick={getName}
         >
           Join Room
         </button>
       )}
+      <div
+        ref={hand}
+        className={`absolute top-[40%] right-1 hidden rounded-md bg-black text-white p-2 cursor-pointer`}
+        onClick={() => {
+          nsSocket.current.emit("raiseHand", { roomName, name });
+        }}
+      >
+        <Hand size={24} strokeWidth={2} />
+      </div>
+      <div
+        ref={handRaise}
+        className="absolute top-[25%] left-[66%] hidden rounded-md bg-white text-black p-2"
+      >
+        {handRaised}&#39;s hand is raised
+      </div>
       <div className="absolute top-0 left-[50%] translate-x-[-50%] justify-center align-middle w-screen h-[calc(100vh-200px)]">
         {consumers.map((consumer, i) => {
           // Find the matching audioConsumer based on appData
@@ -427,6 +529,7 @@ const Home = ({ roomName, isAdmin, username }) => {
 
           return (
             <Consumer
+              admin={isAdmin}
               key={i}
               myId={myId}
               consumer={consumer} // Pass the video stream
@@ -438,7 +541,7 @@ const Home = ({ roomName, isAdmin, username }) => {
       </div>
       {device.current && !isFullscreen && (
         <Fullscreen
-          className="absolute bottom-1 right-1 p-2 text-white bg-black rounded-md"
+          className="absolute bottom-1 right-1 p-2 text-white bg-black rounded-md cursor-pointer"
           size={48}
           stroke="white"
           strokeWidth={2}
@@ -450,7 +553,7 @@ const Home = ({ roomName, isAdmin, username }) => {
       )}{" "}
       {isFullscreen && (
         <Minimize
-          className="absolute bottom-1 bg-black rounded-md right-1 p-2 text-white"
+          className="absolute bottom-1 bg-black rounded-md right-1 p-2 text-white cursor-pointer"
           size={48}
           stroke="white"
           strokeWidth={2}
@@ -464,4 +567,4 @@ const Home = ({ roomName, isAdmin, username }) => {
   );
 };
 
-export default Home;
+export default RoomNamed;
