@@ -68,7 +68,7 @@ const Consumer = ({ consumer, audioConsumer, myId, socket, admin }) => {
           playsInline
         />
         <p className="text-white text-center">{consumer.appData.name}</p>
-        {admin.current && consumer.appData.mediaTag !== "local" && (
+        {admin && consumer.appData.mediaTag !== "local" && (
           <Ban
             className="absolute top-1 right-1 m-2 cursor-pointer bg-black rounded-full text-white"
             onClick={() => {

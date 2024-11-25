@@ -52,7 +52,6 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
   const isConsuming = React.useRef(false);
   const speakerIndex = React.useRef(0);
   const runOnce2 = useRef(false);
-  const isAdmin = React.useRef(false);
   const [name, setName] = React.useState(null);
   const hand = React.useRef(null);
   const handRaise = React.useRef(null);
@@ -238,7 +237,7 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
   const getRtpCapabilities = async () => {
     nsSocket.current.emit("createRoom", roomName, (data) => {
       console.log(data);
-      isAdmin.current = data.isAdmin;
+
       rtpCapabilities.current = data.rtpCapabilities;
       createDevice();
     });
