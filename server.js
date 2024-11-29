@@ -121,6 +121,10 @@ app.prepare().then(() => {
   io.on("connection", (socket) => {
     console.log("A user connected to the default namespace");
 
+    socket.on("list-namespaces", () => {
+      socket.emit("namespaces", Object.keys(namespaces));
+    });
+
     socket.on("joinNamespace", (namespace) => {
       if (!namespaces[namespace]) {
         // Create the namespace dynamically if it doesn't exist
@@ -132,9 +136,6 @@ app.prepare().then(() => {
           nsSocket.emit("connection-success", {
             data: `User connected to namespace: ${namespace}`,
             nsSocketId: nsSocket.id,
-          });
-          nsSocket.on("raiseHand", ({ roomName, username }) => {
-            namespaces[roomName].emit("handRaised", { username });
           });
 
           nsSocket.on("boot", (socketId) => {
@@ -167,14 +168,17 @@ app.prepare().then(() => {
           nsSocket.on("joinRequest", ({ name, roomName, isAdmin }) => {
             if (isAdmin) {
               nsSocket.emit("joinApproval");
+            } else if (
+              !rooms[roomName] ||
+              !namespaces[namespace].sockets.get(rooms[roomName].admin) ||
+              namespaces[namespace].sockets.get(rooms[roomName].admin)
+                .disconnected
+            ) {
+              nsSocket.emit("joinRejected");
             } else {
-              if (rooms[roomName] === undefined) {
-                nsSocket.emit("roomClosed");
-              } else {
-                namespaces[namespace].sockets
-                  .get(rooms[roomName].admin)
-                  .emit("joinRequest", { name, socketId: nsSocket.id });
-              }
+              namespaces[namespace].sockets
+                .get(rooms[roomName].admin)
+                .emit("joinRequest", { name, socketId: nsSocket.id });
             }
           });
 
@@ -186,52 +190,68 @@ app.prepare().then(() => {
             namespaces[namespace].sockets.get(socketId).emit("joinRejected");
           });
 
-          nsSocket.on("createRoom", async (roomName, isAdmin, callback) => {
+          nsSocket.on("raiseHand", ({ username, roomName }) => {
+            namespaces[roomName].emit("handRaised", { username });
+          });
+
+          nsSocket.on("pause", () => {
+            producers
+              .filter((obj) => obj.socketId === nsSocket.id)
+              .forEach((obj) => {
+                obj.producer.pause();
+              });
+          });
+
+          nsSocket.on("resume", () => {
+            producers
+              .filter((obj) => obj.socketId === nsSocket.id)
+              .forEach((obj) => {
+                obj.producer.resume();
+              });
+          });
+
+          nsSocket.on("createRoom", async (roomName, callback) => {
             if (rooms[roomName] === undefined) {
               // worker.createRouter(options)
               // options = { mediaCodecs, appData }
               // mediaCodecs -> defined above
               // appData -> custom application data - we are not supplying any
               // none of the two are required
-              if (isAdmin) {
-                rooms[roomName] = await worker.createRouter({
-                  mediaCodecs,
+              rooms[roomName] = await worker.createRouter({
+                mediaCodecs,
+              });
+              rooms[roomName].admin = nsSocket.id;
+              // Create an AudioLevelObserver on the router
+              rooms[roomName].audioLevelObserver = await rooms[
+                roomName
+              ].createAudioLevelObserver({
+                maxEntries: 1, // Number of participants to detect as active speakers
+                threshold: -60, // Volume threshold in dB, above this is considered speech
+                interval: 800, // Interval in ms to calculate the audio levels
+              });
+              // Listen for active speaker changes
+              rooms[roomName].audioLevelObserver.on("volumes", (volumes) => {
+                const { producer, volume } = volumes[0]; // Get the most active speaker's producer
+                // console.log(
+                //   `Active speaker: ${producer.id}, volume: ${volume}`
+                // );
+                // Send active speaker info to all clients
+                namespaces[namespace].emit("activeSpeaker", {
+                  producerId: producer.id,
                 });
-                rooms[roomName].admin = nsSocket.id;
-                // Create an AudioLevelObserver on the router
-                rooms[roomName].audioLevelObserver = await rooms[
-                  roomName
-                ].createAudioLevelObserver({
-                  maxEntries: 1, // Number of participants to detect as active speakers
-                  threshold: -60, // Volume threshold in dB, above this is considered speech
-                  interval: 800, // Interval in ms to calculate the audio levels
-                });
-                // Listen for active speaker changes
-                rooms[roomName].audioLevelObserver.on("volumes", (volumes) => {
-                  const { producer, volume } = volumes[0]; // Get the most active speaker's producer
-                  // console.log(
-                  //   `Active speaker: ${producer.id}, volume: ${volume}`
-                  // );
-                  // Send active speaker info to all clients
-                  namespaces[namespace].emit("activeSpeaker", {
-                    producerId: producer.id,
-                  });
-                });
+              });
 
-                // Optional: listen for when no one is speaking
-                rooms[roomName].audioLevelObserver.on("silence", () => {
-                  // console.log("No active speakers");
-                  namespaces[namespace].emit("activeSpeaker", {
-                    producerId: null,
-                  });
+              // Optional: listen for when no one is speaking
+              rooms[roomName].audioLevelObserver.on("silence", () => {
+                // console.log("No active speakers");
+                namespaces[namespace].emit("activeSpeaker", {
+                  producerId: null,
                 });
-                console.log(`Router ID: ${rooms[roomName].id}`);
-              }
-
-              getRtpCapabilities(roomName, callback);
-            } else {
-              callback({ error: "Please wait for the Admin to open the room" });
+              });
+              console.log(`Router ID: ${rooms[roomName].id}`);
             }
+
+            getRtpCapabilities(roomName, callback);
           });
 
           const getRtpCapabilities = (roomName, callback) => {

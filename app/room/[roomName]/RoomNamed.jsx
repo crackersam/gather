@@ -7,7 +7,7 @@ import ActiveSpeaker from "./ActiveSpeaker";
 import Consumer from "./Consumer";
 import { Fullscreen, Minimize, Hand } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
-import { toast, useToast } from "@/hooks/use-toast";
+import { set } from "date-fns";
 
 const RoomNamed = ({ roomName, isAdmin, username }) => {
   const nsSocket = useRef(null);
@@ -57,9 +57,7 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
   const handRaise = React.useRef(null);
   const [handRaised, setHandRaised] = React.useState("");
   const handRaiseUnmodifyable = React.useRef(false);
-  const [nsSocketId, setNsSocketId] = React.useState(null);
-  const { toast } = useToast();
-
+  const [joinedNamespace, setJoinedNamespace] = React.useState(false);
   useEffect(() => {
     if (runOnce.current) return;
     socket.emit("joinNamespace", roomName);
@@ -67,7 +65,7 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
       nsSocket.current = io(`/${namespace}`);
       nsSocket.current.on("connection-success", ({ data, nsSocketId }) => {
         console.log(data, nsSocketId);
-        setNsSocketId(nsSocketId);
+        setJoinedNamespace(true);
       });
       console.log(`Joined namespace: ${namespace}`);
     });
@@ -78,6 +76,7 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
   useEffect(() => {
     if (runOnce2.current) return;
     if (!nsSocket.current) return;
+    if (!joinedNamespace) return;
     nsSocket.current.emit("joinRequest", { username, roomName, isAdmin });
     nsSocket.current.on("disconnect", (reason) => {
       console.log("Disconnected from the server. Reason:", reason);
@@ -118,14 +117,6 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
         connectRecvTransport(id);
       }
     });
-    nsSocket.current.on("roomClosed", () => {
-      toast({
-        title: "Room Closed",
-        description:
-          "The room is not yet open, or has been closed by the admin.",
-        variant: "destructive",
-      });
-    });
     nsSocket.current.on("joinApproval", () => {
       getLocalStream();
     });
@@ -153,9 +144,9 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
       getLocalStream();
     });
     const publishId = uuidv4();
-    params.current.appData = { ...params.current.appData, mediaTag: publishId };
+    params.current.appData = { ...params.current, mediaTag: publishId };
     audioParams.current.appData = {
-      ...audioParams.current.appData,
+      ...audioParams.current,
       mediaTag: publishId,
     };
     nsSocket.current.on("producer-remove", ({ socketId }) => {
@@ -184,7 +175,7 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
     });
 
     runOnce2.current = true;
-  }, [nsSocketId]);
+  }, [joinedNamespace]);
 
   const getLocalStream = () => {
     navigator.mediaDevices
@@ -239,9 +230,8 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
   };
 
   const getRtpCapabilities = async () => {
-    nsSocket.current.emit("createRoom", roomName, isAdmin, (data) => {
+    nsSocket.current.emit("createRoom", roomName, (data) => {
       console.log(data);
-
       rtpCapabilities.current = data.rtpCapabilities;
       createDevice();
     });
