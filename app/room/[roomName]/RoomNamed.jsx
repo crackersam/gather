@@ -7,6 +7,7 @@ import ActiveSpeaker from "./ActiveSpeaker";
 import Consumer from "./Consumer";
 import { Fullscreen, Minimize, Hand } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
+import { toast, useToast } from "@/hooks/use-toast";
 
 const RoomNamed = ({ roomName, isAdmin, username }) => {
   const nsSocket = useRef(null);
@@ -46,7 +47,6 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
   const [consumers, setConsumers] = React.useState([]);
   const [audioConsumers, setAudioConsumers] = React.useState([]);
   const fullscreen = React.useRef(null);
-  const [button, setButton] = React.useState(false);
   const [isFullscreen, setIsFullscreen] = React.useState(false);
   const isProducer = React.useRef(false);
   const isConsuming = React.useRef(false);
@@ -57,6 +57,9 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
   const handRaise = React.useRef(null);
   const [handRaised, setHandRaised] = React.useState("");
   const handRaiseUnmodifyable = React.useRef(false);
+  const [nsSocketId, setNsSocketId] = React.useState(null);
+  const { toast } = useToast();
+
   useEffect(() => {
     if (runOnce.current) return;
     socket.emit("joinNamespace", roomName);
@@ -64,6 +67,7 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
       nsSocket.current = io(`/${namespace}`);
       nsSocket.current.on("connection-success", ({ data, nsSocketId }) => {
         console.log(data, nsSocketId);
+        setNsSocketId(nsSocketId);
       });
       console.log(`Joined namespace: ${namespace}`);
     });
@@ -74,6 +78,7 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
   useEffect(() => {
     if (runOnce2.current) return;
     if (!nsSocket.current) return;
+    nsSocket.current.emit("joinRequest", { username, roomName, isAdmin });
     nsSocket.current.on("disconnect", (reason) => {
       console.log("Disconnected from the server. Reason:", reason);
 
@@ -95,9 +100,9 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
         console.log("Disconnected due to network issues.");
       }
     });
-    nsSocket.current.on("handRaised", ({ name }) => {
+    nsSocket.current.on("handRaised", ({ username }) => {
       if (handRaiseUnmodifyable.current) return;
-      setHandRaised(name);
+      setHandRaised(username);
       handRaiseUnmodifyable.current = true;
       handRaise.current.style.display = "block";
       handRaise.current.style.zIndex = speakerIndex.current + 1;
@@ -112,6 +117,14 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
       if (isConsuming.current) {
         connectRecvTransport(id);
       }
+    });
+    nsSocket.current.on("roomClosed", () => {
+      toast({
+        title: "Room Closed",
+        description:
+          "The room is not yet open, or has been closed by the admin.",
+        variant: "destructive",
+      });
     });
     nsSocket.current.on("joinApproval", () => {
       getLocalStream();
@@ -171,19 +184,7 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
     });
 
     runOnce2.current = true;
-  }, [nsSocket.current]);
-
-  useEffect(() => {
-    if (name) {
-      params.current.appData.name = name;
-      nsSocket.current.emit("joinRequest", { name, roomName });
-    }
-  }, [name]);
-
-  const getName = () => {
-    setButton(true);
-    setName(prompt("Enter your name"));
-  };
+  }, [nsSocketId]);
 
   const getLocalStream = () => {
     navigator.mediaDevices
@@ -192,12 +193,15 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
         const track = stream.getVideoTracks()[0];
         const audioTrack = stream.getAudioTracks()[0];
         setConsumers([
-          { consumer: { track }, appData: { mediaTag: "local", name: name } },
+          {
+            consumer: { track },
+            appData: { mediaTag: "local", name: username },
+          },
         ]);
         setAudioConsumers([
           {
             consumer: { track: audioTrack },
-            appData: { mediaTag: "local", name: name },
+            appData: { mediaTag: "local", name: username },
           },
         ]);
         audioParams.current.track = audioTrack;
@@ -235,7 +239,7 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
   };
 
   const getRtpCapabilities = async () => {
-    nsSocket.current.emit("createRoom", roomName, (data) => {
+    nsSocket.current.emit("createRoom", roomName, isAdmin, (data) => {
       console.log(data);
 
       rtpCapabilities.current = data.rtpCapabilities;
@@ -478,19 +482,11 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
   };
   return (
     <div ref={fullscreen} className="w-screen h-screen relative">
-      {!button && (
-        <button
-          className="absolute top-0 left-[50%] z-10 translate-x-[-50%] p-2 bg-slate-800 rounded-md text-white"
-          onClick={getName}
-        >
-          Join Room
-        </button>
-      )}
       <div
         ref={hand}
         className={`absolute top-[40%] right-1 hidden rounded-md bg-black text-white p-2 cursor-pointer`}
         onClick={() => {
-          nsSocket.current.emit("raiseHand", { roomName, name });
+          nsSocket.current.emit("raiseHand", { roomName, username });
         }}
       >
         <Hand size={24} strokeWidth={2} />
