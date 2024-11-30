@@ -59,7 +59,7 @@ const Consumer = ({ consumer, audioConsumer, myId, socket, admin }) => {
     >
       <div
         ref={videoCase}
-        className="flex flex-col overflow-x-hidden justify-center w-[180px] h-[180px]"
+        className="flex flex-col rounded-md overflow-x-hidden justify-center w-[180px] h-[180px]"
       >
         <video
           ref={videoRef}
