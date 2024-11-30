@@ -52,7 +52,6 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
   const isConsuming = React.useRef(false);
   const speakerIndex = React.useRef(0);
   const runOnce2 = useRef(false);
-  const [name, setName] = React.useState(null);
   const hand = React.useRef(null);
   const handRaise = React.useRef(null);
   const [handRaised, setHandRaised] = React.useState("");
@@ -144,9 +143,13 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
       getLocalStream();
     });
     const publishId = uuidv4();
-    params.current.appData = { ...params.current, mediaTag: publishId };
+    params.current.appData = {
+      ...params.current.appData,
+      mediaTag: publishId,
+      name: username,
+    };
     audioParams.current.appData = {
-      ...audioParams.current,
+      ...audioParams.current.appData,
       mediaTag: publishId,
     };
     nsSocket.current.on("producer-remove", ({ socketId }) => {
