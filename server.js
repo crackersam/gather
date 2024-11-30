@@ -165,7 +165,7 @@ app.prepare().then(() => {
             console.log(socketId, "booted");
           });
 
-          nsSocket.on("joinRequest", ({ name, roomName, isAdmin }) => {
+          nsSocket.on("joinRequest", ({ username, roomName, isAdmin }) => {
             if (isAdmin) {
               nsSocket.emit("joinApproval");
             } else if (
@@ -178,7 +178,7 @@ app.prepare().then(() => {
             } else {
               namespaces[namespace].sockets
                 .get(rooms[roomName].admin)
-                .emit("joinRequest", { name, socketId: nsSocket.id });
+                .emit("joinRequest", { username, socketId: nsSocket.id });
             }
           });
 
