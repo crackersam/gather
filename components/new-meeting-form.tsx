@@ -34,7 +34,13 @@ import { useToast } from "@/hooks/use-toast";
 const NewMeetingForm = () => {
   const { toast } = useToast();
   const [showNewMeetingForm, setShowNewMeetingForm] = useState(false);
-  const [selected, setSelected] = useState<Date>();
+  const [selected, setSelected] = useState<Date>(
+    new Date(
+      new Date().setDate(
+        new Date().getDate() //+ 1
+      )
+    )
+  );
   const [timeValue, setTimeValue] = useState<string>("00:00");
   const { execute, status } = useAction(newMeetingAction, {
     onSuccess: (data) => {
@@ -55,7 +61,11 @@ const NewMeetingForm = () => {
     defaultValues: {
       title: "",
       description: "",
-      date: new Date(new Date().setDate(new Date().getDate() + 1)),
+      date: new Date(
+        new Date().setDate(
+          new Date().getDate() //+ 1
+        )
+      ),
     },
   });
   const handleTimeChange: ChangeEventHandler<HTMLInputElement> = (e) => {
@@ -75,7 +85,9 @@ const NewMeetingForm = () => {
 
   const handleDaySelect = (date: Date | undefined) => {
     if (!timeValue || !date) {
-      setSelected(date);
+      if (date) {
+        setSelected(date);
+      }
       return;
     }
     const [hours, minutes] = timeValue
@@ -186,7 +198,7 @@ const NewMeetingForm = () => {
                           fromDate={
                             new Date(
                               new Date().setDate(
-                                new Date().getDate() //+ 1
+                                new Date().getDate() // + 1
                               )
                             )
                           }
