@@ -4,13 +4,15 @@ import { auth } from "@/server/auth";
 import { db } from "@/server/db";
 import { meetingMembers, meetings, users } from "@/server/schema";
 import { format } from "date-fns";
-import { eq, asc, desc } from "drizzle-orm";
+import { eq, asc, desc, count } from "drizzle-orm";
 import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import React from "react";
+import Pagination from "../../../components/Pagination";
 
-const Schedule = async () => {
+const Schedule = async ({ searchParams }: any) => {
+  const { page } = (await searchParams) || 1;
   const session = await auth();
   const userId = session?.user?.id;
   if (!userId) {
@@ -23,7 +25,15 @@ const Schedule = async () => {
     .leftJoin(users, eq(meetings.admin, users.id))
     .where(eq(meetingMembers.userId, userId))
     .orderBy(desc(meetings.date))
-    .limit(10);
+    .limit(10)
+    .offset((page - 1) * 10);
+  const rows = await db
+    .select({ count: count() })
+    .from(meetingMembers)
+    .where(eq(meetingMembers.userId, userId));
+  const totalCourses = rows[0].count;
+  console.log(Math.ceil(totalCourses / 10));
+
   return (
     <main className="flex flex-col m-4 items-center">
       <section className="flex items-center flex-col gap-2 justify-center">
@@ -35,17 +45,21 @@ const Schedule = async () => {
               className=" relative flex rounded-md bg-gray-200 dark:bg-blue-900 border-yellow-500 border-2 p-3 m-2 w-[350px] h-[200px] items-center justify-evenly flex-col"
             >
               {meet.user?.image ? (
-                <Image
-                  src={meet.user?.image}
-                  width={50}
-                  height={50}
-                  className="absolute top-[5px] left-[5px] rounded-full"
-                  alt={""}
-                />
+                <Link href={`/bio/${meet.user?.username}`}>
+                  <Image
+                    src={meet.user?.image}
+                    width={50}
+                    height={50}
+                    className="absolute top-[5px] left-[5px] rounded-full"
+                    alt={""}
+                  />
+                </Link>
               ) : (
-                <div className="absolute top-[5px] left-[5px] rounded-full border-2 border-slate-300 flex justify-center items-center w-10 h-10 bg-slate-300">
-                  {meet.user?.username ? meet.user.username[0] : ""}
-                </div>
+                <Link href={`/bio/${meet.user?.username}`}>
+                  <div className="absolute top-[5px] left-[5px] rounded-full border-2 border-slate-300 flex justify-center items-center w-10 h-10 bg-slate-300">
+                    {meet.user?.username ? meet.user.username[0] : ""}
+                  </div>
+                </Link>
               )}
 
               <h3 className="text-lg font-semibold">{meet.meeting?.title}</h3>
@@ -71,6 +85,7 @@ const Schedule = async () => {
             </li>
           ))}
         </ul>
+        <Pagination finalPage={Math.ceil(totalCourses / 10)} />
       </section>
     </main>
   );
