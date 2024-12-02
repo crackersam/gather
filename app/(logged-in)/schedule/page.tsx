@@ -4,7 +4,8 @@ import { auth } from "@/server/auth";
 import { db } from "@/server/db";
 import { meetingMembers, meetings, users } from "@/server/schema";
 import { format } from "date-fns";
-import { eq, asc } from "drizzle-orm";
+import { eq, asc, desc } from "drizzle-orm";
+import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import React from "react";
@@ -21,7 +22,8 @@ const Schedule = async () => {
     .leftJoin(meetings, eq(meetingMembers.meetingId, meetings.meetingId))
     .leftJoin(users, eq(meetings.admin, users.id))
     .where(eq(meetingMembers.userId, userId))
-    .orderBy(asc(meetings.date));
+    .orderBy(desc(meetings.date))
+    .limit(10);
   return (
     <main className="flex flex-col m-4 items-center">
       <section className="flex items-center flex-col gap-2 justify-center">
@@ -30,8 +32,22 @@ const Schedule = async () => {
           {meets.map((meet) => (
             <li
               key={meet.meeting?.meetingId}
-              className="flex rounded-md bg-gray-200 dark:bg-blue-900 border-yellow-500 border-2 p-3 m-2 w-[350px] h-[200px] items-center justify-evenly flex-col"
+              className=" relative flex rounded-md bg-gray-200 dark:bg-blue-900 border-yellow-500 border-2 p-3 m-2 w-[350px] h-[200px] items-center justify-evenly flex-col"
             >
+              {meet.user?.image ? (
+                <Image
+                  src={meet.user?.image}
+                  width={50}
+                  height={50}
+                  className="absolute top-[5px] left-[5px] rounded-full"
+                  alt={""}
+                />
+              ) : (
+                <div className="absolute top-[5px] left-[5px] rounded-full border-2 border-slate-300 flex justify-center items-center w-10 h-10 bg-slate-300">
+                  {meet.user?.username ? meet.user.username[0] : ""}
+                </div>
+              )}
+
               <h3 className="text-lg font-semibold">{meet.meeting?.title}</h3>
               <p className="text-sm break-all">{meet.meeting?.description}</p>
               <p className="text-sm">
