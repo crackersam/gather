@@ -32,7 +32,6 @@ const Schedule = async ({ searchParams }: any) => {
     .from(meetingMembers)
     .where(eq(meetingMembers.userId, userId));
   const totalCourses = rows[0].count;
-  console.log(Math.ceil(totalCourses / 10));
 
   return (
     <main className="flex flex-col m-4 items-center">

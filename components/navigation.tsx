@@ -33,7 +33,7 @@ const Navigation = ({
   const router = useRouter();
 
   return (
-    <nav className="w-full flex justify-between items-center p-4">
+    <nav className="w-[100vw] flex justify-between items-center p-4">
       <Link href="/">Home</Link>
       <DropdownMenu>
         <DropdownMenuTrigger>
