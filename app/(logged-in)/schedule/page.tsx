@@ -38,11 +38,11 @@ const Schedule = async ({ searchParams }: any) => {
     <main className="flex flex-col m-4 items-center">
       <section className="flex items-center flex-col gap-2 justify-center">
         <h2 className="text-2xl font-semibold">My Meetings</h2>
-        <ul className="flex flex-wrap w-[100vw] items-center justify-center">
+        <ul className="flex flex-wrap items-center justify-center">
           {meets.map((meet) => (
             <li
               key={meet.meeting?.meetingId}
-              className=" relative flex rounded-md bg-gray-200 dark:bg-blue-900 border-yellow-500 border-2 p-3 m-2 w-[350px] h-[200px] items-center justify-evenly flex-col"
+              className=" relative flex rounded-md bg-gray-200 dark:bg-blue-900 border-yellow-500 border-2 p-3 m-2 min-w-[300px] max-w-[350px] h-[200px] items-center justify-evenly flex-col"
             >
               {meet.user?.image ? (
                 <Link href={`/bio/${meet.user?.username}`}>

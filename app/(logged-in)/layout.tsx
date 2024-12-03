@@ -20,14 +20,14 @@ const LoggedInLayout = async ({ children }: { children: React.ReactNode }) => {
   }
 
   return (
-    <>
+    <div className="w-[100vw]">
       <Navigation
         session={session}
         expires={session.expires}
         image={user.image!}
       />
       {children}
-    </>
+    </div>
   );
 };
 

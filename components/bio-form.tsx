@@ -53,7 +53,7 @@ const BioForm = ({ biography }: { biography: string }) => {
     <Form {...form}>
       <form
         onSubmit={form.handleSubmit(onSubmit)}
-        className="space-y-4 w-[800px]"
+        className="space-y-4 w-[80%]"
       >
         <FormField
           control={form.control}

@@ -31,11 +31,11 @@ const HomePage = async () => {
       <NewMeetingForm />
       <section className="flex items-center flex-col gap-2 justify-center">
         <h2 className="text-2xl font-semibold">Upcoming Meetings</h2>
-        <ul className="flex flex-wrap w-[100vw] items-center justify-center">
+        <ul className="flex flex-wrap items-center justify-center">
           {meets.map((meet) => (
             <li
               key={meet.meetingId}
-              className="relative flex rounded-md bg-gray-200 dark:bg-blue-900 border-yellow-500 border-2 p-3 m-2 w-[350px] h-[200px] items-center justify-evenly flex-col"
+              className="relative flex rounded-md bg-gray-200 dark:bg-blue-900 border-yellow-500 border-2 p-3 m-2 min-w-[300px] max-w-[350px] h-[200px] items-center justify-evenly flex-col"
             >
               {meet.image ? (
                 <Link href={`/bio/${meet.username}`}>
