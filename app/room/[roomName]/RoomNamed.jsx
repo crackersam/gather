@@ -124,8 +124,8 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
         alert("Your request to join the room was denied.");
       }
     });
-    nsSocket.current.on("joinRequest", ({ name, socketId }) => {
-      let response = window.confirm(`${name} wants to join the room`);
+    nsSocket.current.on("joinRequest", ({ username, socketId }) => {
+      let response = window.confirm(`${username} wants to join the room`);
       if (response) {
         nsSocket.current.emit("joinApproval", { socketId });
       } else {
