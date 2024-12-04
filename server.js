@@ -168,13 +168,6 @@ app.prepare().then(() => {
           nsSocket.on("joinRequest", ({ username, roomName, isAdmin }) => {
             if (isAdmin) {
               nsSocket.emit("joinApproval");
-            } else if (
-              !rooms[roomName] ||
-              !namespaces[namespace].sockets.get(rooms[roomName].admin) ||
-              namespaces[namespace].sockets.get(rooms[roomName].admin)
-                .disconnected
-            ) {
-              nsSocket.emit("joinRejected");
             } else {
               namespaces[namespace].sockets
                 .get(rooms[roomName].admin)
@@ -190,8 +183,8 @@ app.prepare().then(() => {
             namespaces[namespace].sockets.get(socketId).emit("joinRejected");
           });
 
-          nsSocket.on("raiseHand", ({ username, roomName }) => {
-            namespaces[roomName].emit("handRaised", { username });
+          nsSocket.on("raiseHand", ({ name, roomName }) => {
+            namespaces[roomName].emit("handRaised", { name });
           });
 
           nsSocket.on("pause", () => {
@@ -210,7 +203,7 @@ app.prepare().then(() => {
               });
           });
 
-          nsSocket.on("createRoom", async (roomName, callback) => {
+          nsSocket.on("createRoom", async (roomName, isAdmin, callback) => {
             if (rooms[roomName] === undefined) {
               // worker.createRouter(options)
               // options = { mediaCodecs, appData }
@@ -220,7 +213,9 @@ app.prepare().then(() => {
               rooms[roomName] = await worker.createRouter({
                 mediaCodecs,
               });
-              rooms[roomName].admin = nsSocket.id;
+              if (isAdmin) {
+                rooms[roomName].admin = nsSocket.id;
+              }
               // Create an AudioLevelObserver on the router
               rooms[roomName].audioLevelObserver = await rooms[
                 roomName

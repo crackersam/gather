@@ -7,7 +7,6 @@ import ActiveSpeaker from "./ActiveSpeaker";
 import Consumer from "./Consumer";
 import { Fullscreen, Minimize, Hand } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
-import { set } from "date-fns";
 
 const RoomNamed = ({ roomName, isAdmin, username }) => {
   const nsSocket = useRef(null);
@@ -47,16 +46,17 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
   const [consumers, setConsumers] = React.useState([]);
   const [audioConsumers, setAudioConsumers] = React.useState([]);
   const fullscreen = React.useRef(null);
+  const [button, setButton] = React.useState(false);
   const [isFullscreen, setIsFullscreen] = React.useState(false);
   const isProducer = React.useRef(false);
   const isConsuming = React.useRef(false);
   const speakerIndex = React.useRef(0);
   const runOnce2 = useRef(false);
+  const [name, setName] = React.useState(null);
   const hand = React.useRef(null);
   const handRaise = React.useRef(null);
   const [handRaised, setHandRaised] = React.useState("");
   const handRaiseUnmodifyable = React.useRef(false);
-  const [joinedNamespace, setJoinedNamespace] = React.useState(false);
   useEffect(() => {
     if (runOnce.current) return;
     socket.emit("joinNamespace", roomName);
@@ -64,7 +64,6 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
       nsSocket.current = io(`/${namespace}`);
       nsSocket.current.on("connection-success", ({ data, nsSocketId }) => {
         console.log(data, nsSocketId);
-        setJoinedNamespace(true);
       });
       console.log(`Joined namespace: ${namespace}`);
     });
@@ -75,8 +74,6 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
   useEffect(() => {
     if (runOnce2.current) return;
     if (!nsSocket.current) return;
-    if (!joinedNamespace) return;
-    nsSocket.current.emit("joinRequest", { username, roomName, isAdmin });
     nsSocket.current.on("disconnect", (reason) => {
       console.log("Disconnected from the server. Reason:", reason);
 
@@ -98,9 +95,9 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
         console.log("Disconnected due to network issues.");
       }
     });
-    nsSocket.current.on("handRaised", ({ username }) => {
+    nsSocket.current.on("handRaised", ({ name }) => {
       if (handRaiseUnmodifyable.current) return;
-      setHandRaised(username);
+      setHandRaised(name);
       handRaiseUnmodifyable.current = true;
       handRaise.current.style.display = "block";
       handRaise.current.style.zIndex = speakerIndex.current + 1;
@@ -127,8 +124,8 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
         alert("Your request to join the room was denied.");
       }
     });
-    nsSocket.current.on("joinRequest", ({ username, socketId }) => {
-      let response = window.confirm(`${username} wants to join the room`);
+    nsSocket.current.on("joinRequest", ({ name, socketId }) => {
+      let response = window.confirm(`${name} wants to join the room`);
       if (response) {
         nsSocket.current.emit("joinApproval", { socketId });
       } else {
@@ -143,13 +140,9 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
       getLocalStream();
     });
     const publishId = uuidv4();
-    params.current.appData = {
-      ...params.current.appData,
-      mediaTag: publishId,
-      name: username,
-    };
+    params.current.appData = { ...params.current, mediaTag: publishId };
     audioParams.current.appData = {
-      ...audioParams.current.appData,
+      ...audioParams.current,
       mediaTag: publishId,
     };
     nsSocket.current.on("producer-remove", ({ socketId }) => {
@@ -178,7 +171,13 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
     });
 
     runOnce2.current = true;
-  }, [joinedNamespace]);
+  }, [nsSocket.current]);
+
+  const registerName = () => {
+    setButton(true);
+    params.current.appData = { ...params.current.appData, name: username };
+    nsSocket.current.emit("joinRequest", { username, roomName, isAdmin });
+  };
 
   const getLocalStream = () => {
     navigator.mediaDevices
@@ -233,7 +232,7 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
   };
 
   const getRtpCapabilities = async () => {
-    nsSocket.current.emit("createRoom", roomName, (data) => {
+    nsSocket.current.emit("createRoom", roomName, isAdmin, (data) => {
       console.log(data);
       rtpCapabilities.current = data.rtpCapabilities;
       createDevice();
@@ -475,11 +474,19 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
   };
   return (
     <div ref={fullscreen} className="w-screen h-screen relative">
+      {!button && (
+        <button
+          className="absolute top-0 left-[50%] z-10 translate-x-[-50%] p-2 bg-slate-800 rounded-md text-white"
+          onClick={registerName}
+        >
+          Join Room
+        </button>
+      )}
       <div
         ref={hand}
         className={`absolute top-[40%] right-1 hidden rounded-md bg-black text-white p-2 cursor-pointer`}
         onClick={() => {
-          nsSocket.current.emit("raiseHand", { roomName, username });
+          nsSocket.current.emit("raiseHand", { roomName, name });
         }}
       >
         <Hand size={24} strokeWidth={2} />
