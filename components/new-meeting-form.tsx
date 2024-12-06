@@ -127,7 +127,7 @@ const NewMeetingForm = () => {
                 name="title"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Title</FormLabel>
+                    <FormLabel className="dark:text-black">Title</FormLabel>
                     <FormControl>
                       <Input placeholder="Politics debate" {...field} />
                     </FormControl>
@@ -141,7 +141,9 @@ const NewMeetingForm = () => {
                 name="description"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Description</FormLabel>
+                    <FormLabel className="dark:text-black">
+                      Description
+                    </FormLabel>
                     <FormControl>
                       <Textarea
                         placeholder="A debate about the pros and cons of the European Union"
@@ -158,7 +160,9 @@ const NewMeetingForm = () => {
                 name="date"
                 render={({ field }) => (
                   <FormItem className="flex flex-col">
-                    <FormLabel>Date of meeting</FormLabel>
+                    <FormLabel className="dark:text-black">
+                      Date of meeting
+                    </FormLabel>
                     <Popover>
                       <PopoverTrigger asChild>
                         <Button
