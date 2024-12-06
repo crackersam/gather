@@ -183,8 +183,8 @@ app.prepare().then(() => {
             namespaces[namespace].sockets.get(socketId).emit("joinRejected");
           });
 
-          nsSocket.on("raiseHand", ({ name, roomName }) => {
-            namespaces[roomName].emit("handRaised", { name });
+          nsSocket.on("raiseHand", ({ username, roomName }) => {
+            namespaces[roomName].emit("handRaised", { username });
           });
 
           nsSocket.on("pause", () => {

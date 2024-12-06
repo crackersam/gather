@@ -95,9 +95,9 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
         console.log("Disconnected due to network issues.");
       }
     });
-    nsSocket.current.on("handRaised", ({ name }) => {
+    nsSocket.current.on("handRaised", ({ username }) => {
       if (handRaiseUnmodifyable.current) return;
-      setHandRaised(name);
+      setHandRaised(username);
       handRaiseUnmodifyable.current = true;
       handRaise.current.style.display = "block";
       handRaise.current.style.zIndex = speakerIndex.current + 1;
@@ -486,7 +486,7 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
         ref={hand}
         className={`absolute top-[40%] right-1 hidden rounded-md bg-black text-white p-2 cursor-pointer`}
         onClick={() => {
-          nsSocket.current.emit("raiseHand", { roomName, name });
+          nsSocket.current.emit("raiseHand", { roomName, username });
         }}
       >
         <Hand size={24} strokeWidth={2} />
