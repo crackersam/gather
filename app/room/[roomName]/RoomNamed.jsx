@@ -140,9 +140,9 @@ const RoomNamed = ({ roomName, isAdmin, username }) => {
       getLocalStream();
     });
     const publishId = uuidv4();
-    params.current.appData = { ...params.current, mediaTag: publishId };
+    params.current.appData = { ...params.current.appData, mediaTag: publishId };
     audioParams.current.appData = {
-      ...audioParams.current,
+      ...audioParams.current.appData,
       mediaTag: publishId,
     };
     nsSocket.current.on("producer-remove", ({ socketId }) => {
